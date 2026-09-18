@@ -3,6 +3,7 @@
 namespace Laravel\Wayfinder;
 
 use Illuminate\Console\Command;
+use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Routing\Route as BaseRoute;
 use Illuminate\Routing\Router;
@@ -25,6 +26,8 @@ class GenerateCommand extends Command
     private ?string $forcedRoot;
 
     private $urlDefaults = [];
+
+    private $globalMiddleware = [];
 
     private $pathDirectory = 'actions';
 
@@ -52,21 +55,17 @@ class GenerateCommand extends Command
         $this->view->addNamespace('wayfinder', __DIR__.'/../resources');
         $this->view->addExtension('blade.ts', 'blade');
 
+        $this->syncMiddlewareFromHttpKernel();
+
         $this->forcedScheme = (new ReflectionProperty($this->url, 'forceScheme'))->getValue($this->url);
         $this->forcedRoot = (new ReflectionProperty($this->url, 'forcedRoot'))->getValue($this->url);
 
-        $globalUrlDefaults = collect(URL::getDefaultParameters())->map(fn ($v) => is_scalar($v) || is_null($v) ? $v : '');
+        $globalUrlDefaults = collect(URL::getDefaultParameters())
+            ->map(fn ($v) => is_scalar($v) || is_null($v) ? $v : '')
+            ->merge($this->urlDefaultsForMiddleware($this->globalMiddleware));
 
         $routes = collect($this->router->getRoutes())->map(function (BaseRoute $route) use ($globalUrlDefaults) {
-            $defaults = collect($this->router->gatherRouteMiddleware($route))->map(function ($middleware) {
-                if ($middleware instanceof \Closure) {
-                    return [];
-                }
-
-                $this->urlDefaults[$middleware] ??= $this->getDefaultsForMiddleware($middleware);
-
-                return $this->urlDefaults[$middleware];
-            })->flatMap(fn ($r) => $r);
+            $defaults = $this->urlDefaultsForMiddleware($this->router->gatherRouteMiddleware($route));
 
             return new Route(
                 $route,
@@ -77,15 +76,15 @@ class GenerateCommand extends Command
             );
         });
 
-        if (! $this->option('skip-actions')) {
-            $this->files->deleteDirectory($this->base());
+        $this->writeWayfinderHelperFile();
 
+        if (! $this->option('skip-actions')) {
             $controllers = $routes->filter(fn (Route $route) => $route->hasController())->groupBy(fn (Route $route) => $route->dotNamespace());
 
             $controllers->undot()->each($this->writeBarrelFiles(...));
             $controllers->each($this->writeControllerFile(...));
 
-            $this->writeContent();
+            $this->pruneStaleFiles($this->base(), $this->writeContent());
 
             info('[Wayfinder] Generated actions in '.$this->base());
         }
@@ -93,25 +92,72 @@ class GenerateCommand extends Command
         $this->pathDirectory = 'routes';
 
         if (! $this->option('skip-routes')) {
-            $this->files->deleteDirectory($this->base());
-
             $named = $routes->filter(fn (Route $route) => $route->name())->groupBy(fn (Route $route) => $route->name());
 
             $named->each($this->writeNamedFile(...));
             $named->undot()->each($this->writeBarrelFiles(...));
 
-            $this->writeContent();
+            $this->pruneStaleFiles($this->base(), $this->writeContent());
 
             info('[Wayfinder] Generated routes in '.$this->base());
         }
+    }
 
+    private function syncMiddlewareFromHttpKernel(): void
+    {
+        if (! $this->laravel->bound(HttpKernel::class)) {
+            return;
+        }
+
+        $groups = $this->router->getMiddlewareGroups();
+        $aliases = $this->router->getMiddleware();
+
+        // Resolving the kernel syncs its middleware onto the router, overwriting existing groups
+        $kernel = $this->laravel->make(HttpKernel::class);
+
+        foreach ($groups as $group => $middleware) {
+            foreach ($middleware as $name) {
+                $this->router->pushMiddlewareToGroup($group, $name);
+            }
+        }
+
+        foreach ($aliases as $name => $class) {
+            $this->router->aliasMiddleware($name, $class);
+        }
+
+        // Global middleware is never synced to the router, and the getter is not on the kernel contract
+        if (method_exists($kernel, 'getGlobalMiddleware')) {
+            $this->globalMiddleware = $kernel->getGlobalMiddleware();
+        }
+    }
+
+    private function urlDefaultsForMiddleware(array $middleware): Collection
+    {
+        return collect($middleware)
+            ->reject(fn ($name) => $name instanceof \Closure)
+            ->flatMap(function ($name) {
+                $this->urlDefaults[$name] ??= $this->getDefaultsForMiddleware($name);
+
+                return $this->urlDefaults[$name];
+            });
+    }
+
+    private function writeWayfinderHelperFile(): void
+    {
+        $previousPathDirectory = $this->pathDirectory;
         $this->pathDirectory = 'wayfinder';
 
         $this->files->ensureDirectoryExists($this->base());
-        $this->files->copy(__DIR__.'/../resources/js/wayfinder.ts', join_paths($this->base(), 'index.ts'));
+
+        $source = __DIR__.'/../resources/js/wayfinder.ts';
+        $destination = join_paths($this->base(), 'index.ts');
+
+        $this->writeContentIfChanged($destination, $this->files->get($source));
+
+        $this->pathDirectory = $previousPathDirectory;
     }
 
-    private function appendContent($path, $content): void
+    private function appendContent(string $path, string $content): void
     {
         $this->content[$path] ??= [];
 
@@ -120,27 +166,85 @@ class GenerateCommand extends Command
         }
     }
 
-    private function prependContent($path, $content): void
+    private function prependContent(string $path, string $content): void
     {
         $this->content[$path] ??= [];
 
         array_unshift($this->content[$path], $content);
     }
 
-    private function writeContent(): void
+    /**
+     * @return string[] paths that were written
+     */
+    private function writeContent(): array
     {
+        $written = [];
+
         foreach ($this->content as $path => $content) {
             $this->files->ensureDirectoryExists(dirname($path));
-            $this->files->put($path, TypeScript::cleanUp(implode(PHP_EOL, $content)));
 
-            // Prepend the imports to the file
+            $body = TypeScript::cleanUp(implode(PHP_EOL, $content));
+
             if (isset($this->imports[$path])) {
-                $importLines = collect($this->imports[$path])->map(fn ($imports, $key) => 'import { '.implode(', ', array_unique($imports))." } from '{$key}'")->implode(PHP_EOL);
-                $this->files->prepend($path, $importLines.PHP_EOL);
+                $importLines = collect($this->imports[$path])
+                    ->map(fn ($imports, $key) => 'import { '.implode(', ', array_unique($imports))." } from '{$key}'")
+                    ->implode(PHP_EOL);
+
+                $body = $importLines.PHP_EOL.$body;
             }
+
+            $this->writeContentIfChanged($path, $body);
+
+            $written[] = $path;
         }
 
         $this->content = [];
+        $this->imports = [];
+
+        return $written;
+    }
+
+    private function writeContentIfChanged(string $path, string $content): void
+    {
+        $this->files->ensureDirectoryExists(dirname($path));
+
+        if (! $this->files->exists($path) || $this->files->get($path) !== $content) {
+            $this->files->put($path, $content);
+        }
+    }
+
+    private function pruneStaleFiles(string $base, array $writtenPaths): void
+    {
+        if (! $this->files->isDirectory($base)) {
+            return;
+        }
+
+        $kept = collect($writtenPaths)->map(fn ($path) => realpath($path) ?: $path)->flip();
+
+        foreach ($this->files->allFiles($base) as $file) {
+            $path = $file->getPathname();
+
+            if (! $kept->has(realpath($path) ?: $path)) {
+                $this->files->delete($path);
+            }
+        }
+
+        $this->pruneEmptyDirectories($base);
+    }
+
+    private function pruneEmptyDirectories(string $dir): void
+    {
+        if (! $this->files->isDirectory($dir)) {
+            return;
+        }
+
+        foreach ($this->files->directories($dir) as $sub) {
+            $this->pruneEmptyDirectories($sub);
+        }
+
+        if (empty($this->files->files($dir)) && empty($this->files->directories($dir))) {
+            $this->files->deleteDirectory($dir);
+        }
     }
 
     private function writeControllerFile(Collection $routes, string $namespace): void
@@ -198,6 +302,8 @@ class GenerateCommand extends Command
         $isInvokable = $routes->first()->hasInvokableController();
         $method = $routes->first()->jsMethod();
 
+        $duplicateUris = $routes->duplicates(fn (Route $route) => $route->uri());
+
         $this->appendContent($path, $this->view->make('wayfinder::multi-method', [
             'method' => $method,
             'original_method' => $routes->first()->originalJsMethod(),
@@ -208,13 +314,19 @@ class GenerateCommand extends Command
             'shouldExport' => ! $isInvokable,
             'withForm' => $this->option('with-form') ?? false,
             ...$this->safeParamNames($method),
-            'routes' => $routes->map(fn ($r) => [
-                'method' => $r->jsMethod(),
-                'tempMethod' => $r->jsMethod().hash('xxh128', $r->uri()),
-                'parameters' => $r->parameters(),
-                'verbs' => $r->verbs(),
-                'uri' => $r->uri(),
-            ]),
+            'routes' => $routes->map(function (Route $r) use ($duplicateUris) {
+                $uri = $r->uri();
+                $key = $duplicateUris->contains($uri) ? $r->verbPrefixedUri() : $uri;
+
+                return [
+                    'method' => $r->jsMethod(),
+                    'tempMethod' => $r->jsMethod().hash('xxh128', $key),
+                    'parameters' => $r->parameters(),
+                    'verbs' => $r->verbs(),
+                    'uri' => $uri,
+                    'key' => $key,
+                ];
+            }),
         ])->render());
     }
 
@@ -330,11 +442,17 @@ class GenerateCommand extends Command
             ];
         });
 
-        if (! ($this->content[$indexPath] ?? false)) {
-            $imports = $childKeys->filter(fn ($_, $key) => $key !== 'index')->map(fn ($alias, $key) => "import {$alias['safe']} from './{$key}'")->implode(PHP_EOL);
-        } else {
-            $imports = $childKeys->only($keysWithGrandkids->keys())->map(fn ($alias, $key) => "import {$alias['safe']} from './{$key}'")->implode(PHP_EOL);
-        }
+        // A child named "index" is written to "index/index.ts", but every resolver
+        // prefers the sibling "index.ts" for "./index", so it has to be imported
+        // by its full path or the barrel silently ends up importing itself.
+        $importPath = fn ($key) => $key === 'index' ? './index/index' : "./{$key}";
+
+        $importable = ($this->content[$indexPath] ?? false)
+            ? $childKeys->only($keysWithGrandkids->keys())
+            // A childless "index" is a leaf written into this same file, so it needs no import.
+            : $childKeys->filter(fn ($_, $key) => $key !== 'index' || $keysWithGrandkids->has($key));
+
+        $imports = $importable->map(fn ($alias, $key) => "import {$alias['safe']} from '{$importPath($key)}'")->implode(PHP_EOL);
 
         if ($imports) {
             $this->prependContent($indexPath, $imports);

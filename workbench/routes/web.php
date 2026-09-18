@@ -14,6 +14,7 @@ use App\Http\Controllers\Nested\NestedController;
 use App\Http\Controllers\OptionalController;
 use App\Http\Controllers\ParameterNameController;
 use App\Http\Controllers\PostController;
+use App\Http\Controllers\SharedUriController;
 use App\Http\Controllers\TwoRoutesSameActionController;
 use App\Http\Controllers\UrlDefaultsController;
 use App\Http\Middleware\UrlDefaultsMiddleware;
@@ -80,6 +81,10 @@ Route::get('/prism/chat', [PrismChatController::class, 'index']);
 Route::get('/two-routes-one-action-1', [TwoRoutesSameActionController::class, 'same']);
 Route::get('/two-routes-one-action-2', [TwoRoutesSameActionController::class, 'same']);
 
+Route::get('/shared-uri/{name}', SharedUriController::class);
+Route::post('/shared-uri/{name}', SharedUriController::class);
+Route::match(['put', 'patch'], '/shared-uri/{name}', SharedUriController::class);
+
 Route::get('/disallowed/delete', [DisallowedMethodNameController::class, 'delete']);
 Route::get('/disallowed/404', [DisallowedMethodNameController::class, '404'])->name('disallowed.404');
 Route::get('/disallowed/2fa', [DisallowedMethodNameController::class, '2fa'])->name('2fa.disallowed');
@@ -99,3 +104,8 @@ Route::prefix('/api/v1')->name('api.v1.')->group(function () {
         Route::get('/', fn () => 'ok')->name('index');
     });
 });
+
+Route::get('/photos', fn () => 'ok')->name('photos.index');
+Route::get('/photos/window', fn () => 'ok')->name('photos.index.window');
+
+Route::get('/albums/recent', fn () => 'ok')->name('albums.index.recent');

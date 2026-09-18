@@ -2,7 +2,58 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased](https://github.com/laravel/wayfinder/compare/v0.1.16...main)
+## [Unreleased](https://github.com/laravel/wayfinder/compare/v0.1.21...main)
+
+## [v0.1.21](https://github.com/laravel/wayfinder/compare/v0.1.20...v0.1.21) - 2026-08-04
+
+### What's Changed
+
+* Document stale route cache deploy issue by [@joetannenbaum](https://github.com/joetannenbaum) in https://github.com/laravel/wayfinder/pull/256
+* Pin GitHub Actions to commit SHAs and add Dependabot config by [@joetannenbaum](https://github.com/joetannenbaum) in https://github.com/laravel/wayfinder/pull/260
+* GitHub Actions hardening by [@nunomaduro](https://github.com/nunomaduro) in https://github.com/laravel/wayfinder/pull/273
+* Add Dependabot cooldown of 5 days by [@nunomaduro](https://github.com/nunomaduro) in https://github.com/laravel/wayfinder/pull/274
+* Bump shivammathur/setup-php from 2.37.0 to 2.37.1 in the github-actions group across 1 directory by [@dependabot](https://github.com/dependabot)[bot] in https://github.com/laravel/wayfinder/pull/263
+* Enable Dependabot auto-merge by [@nunomaduro](https://github.com/nunomaduro) in https://github.com/laravel/wayfinder/pull/275
+* Bump actions/checkout from 6.0.2 to 6.0.3 in the github-actions group by [@dependabot](https://github.com/dependabot)[bot] in https://github.com/laravel/wayfinder/pull/281
+* Bump shivammathur/setup-php from 2.37.1 to 2.37.2 in the github-actions group by [@dependabot](https://github.com/dependabot)[bot] in https://github.com/laravel/wayfinder/pull/284
+* Bump the github-actions group across 1 directory with 2 updates by [@dependabot](https://github.com/dependabot)[bot] in https://github.com/laravel/wayfinder/pull/288
+* Bump actions/checkout from 7.0.0 to 7.0.1 in the github-actions group by [@dependabot](https://github.com/dependabot)[bot] in https://github.com/laravel/wayfinder/pull/289
+* Support Boost 2.5 by [@pushpak1300](https://github.com/pushpak1300) in https://github.com/laravel/wayfinder/pull/293
+
+**Full Changelog**: https://github.com/laravel/wayfinder/compare/v0.1.20...v0.1.21
+
+## [v0.1.20](https://github.com/laravel/wayfinder/compare/v0.1.19...v0.1.20) - 2026-05-12
+
+### What's Changed
+
+* Bump happy-dom minimum to 20.8.9 by [@joetannenbaum](https://github.com/joetannenbaum) in https://github.com/laravel/wayfinder/pull/252
+
+**Full Changelog**: https://github.com/laravel/wayfinder/compare/v0.1.19...v0.1.20
+
+## [v0.1.19](https://github.com/laravel/wayfinder/compare/v0.1.18...v0.1.19) - 2026-05-12
+
+### What's Changed
+
+* Clarify behavior when multiple routes share an action by [@joetannenbaum](https://github.com/joetannenbaum) in https://github.com/laravel/wayfinder/pull/251
+
+**Full Changelog**: https://github.com/laravel/wayfinder/compare/v0.1.18...v0.1.19
+
+## [v0.1.18](https://github.com/laravel/wayfinder/compare/v0.1.17...v0.1.18) - 2026-05-08
+
+### What's Changed
+
+* Stop generated files from briefly existing without their imports by [@joetannenbaum](https://github.com/joetannenbaum) in https://github.com/laravel/wayfinder/pull/247
+
+**Full Changelog**: https://github.com/laravel/wayfinder/compare/v0.1.17...v0.1.18
+
+## [v0.1.17](https://github.com/laravel/wayfinder/compare/v0.1.16...v0.1.17) - 2026-05-05
+
+### What's Changed
+
+* Replace query parameter families when merging query params by [@utsavsomaiya](https://github.com/utsavsomaiya) in https://github.com/laravel/wayfinder/pull/218
+* Preserve functional URL defaults when adding runtime defaults by [@utsavsomaiya](https://github.com/utsavsomaiya) in https://github.com/laravel/wayfinder/pull/217
+
+**Full Changelog**: https://github.com/laravel/wayfinder/compare/v0.1.16...v0.1.17
 
 ## [v0.1.16](https://github.com/laravel/wayfinder/compare/v0.1.15...v0.1.16) - 2026-04-07
 
